@@ -18,3 +18,10 @@ now for the python client,
 * cd hazelcast-python
 * python setup.py install
 
+here is a quick example
+---------------------------
+
+    from hazelcast.client import hazelcast
+    hc = hazelcast()
+    hc.mput('mymap', 'foo', 'bar')
+    print hc.mget('mymap', 'foo')

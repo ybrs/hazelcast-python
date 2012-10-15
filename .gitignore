@@ -6,10 +6,5 @@ build/
 dist/
 MANIFEST
 db
-dbenv
-sqdb/
-dbuser1/
-imdbdata/
-imdb.sqlite
 env/
-mailserver/run
+hazelcast.egg-info/

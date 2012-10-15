@@ -131,7 +131,7 @@ class HCHost(object):
             index = buf.find('\r\n')
             if index >= 0:
                 break
-            data = recv(4096)
+            data = recv(4096)            
             if not data:
                 # connection close, let's kill it and raise
                 self.close_socket()
@@ -150,7 +150,7 @@ class HCHost(object):
             print "**** server ****", header
         pos = header.find('#')
         if pos == -1:
-            if ('OK' in header):
+            if ('OK' in header):                                
                 return _force_unicode(header)
             else:
                 print "[", header, "]"
@@ -236,6 +236,41 @@ class HCHost(object):
         else:
             return "unix:%s%s" % (self.address, d)
 
+class Map(object):
+    '''
+    this wraps hazelcasts map commands like python's dict class
+    m = hc.Map()
+    m['a'] = 'foo'
+    print m['a']
+    >>> foo
+    '''
+    def __init__(self, hc, name):
+        self.hc = hc
+        self.name = name
+
+    def __len__(self):        
+        return 0
+        
+    def __getitem__(self, k):
+        return self.hc.mget(self.name, k)        
+
+    def __setitem__(self, k, v):
+        return self.hc.mset(self.name, k, v)
+
+    def __delitem__(self, k):
+        self.hc.mremove(self.name, k)
+
+    def __iter__(self):
+        for i in self.keys():
+            yield i
+
+    def keys(self):
+        return self.hc.keyset('map', self.name)
+
+    def __contains__(self, k):
+        return self.hc.mcontainskey(self.name, k)
+
+
 
 class HazelCast(object):
     ''' this is for the cluster '''
@@ -247,6 +282,8 @@ class HazelCast(object):
             self.nodes.append(node)
             node.connect()
             node.auth(user=user, passwd=passwd)
+
+        self._maps = {}
 
     def cmd(self, command, commandargs, *args):
         ''' TODO: first node is the best for now, but should fallback to second node if the first node is dead etc.. '''        
@@ -317,16 +354,19 @@ class HazelCast(object):
         '''
             Returns the value to which this map maps the specified key. Returns null if the map contains no mapping for
             this key        
+            raises KeyError if its not defined
         '''
         values = self.cmd('MGET', mapname, key)
-        if values:
+        if isinstance(values, list) and values:
             return values[0]
+        else:
+            raise KeyError
 
     def msize(self, mapname):
         '''
             Returns the size of the map.
         '''
-        return self.cmd('MSIZE', mapname)
+        return int(self.cmd('MSIZE', mapname))
 
     def mgetall(self, mapname, keys):
         '''
@@ -349,6 +389,17 @@ class HazelCast(object):
             <value in bytes>        
         '''
         return self.cmd('MGETENTRY', mapname, key)
+    
+    def Map(self, name):
+            '''
+            returns a new instance of hazelcast.Map bound to this cluster if there is not any with this name, syntatic sugar
+            '''
+            if name in self._maps:
+                return self._maps[name]
+
+            self._maps[name] = Map(self, name)
+            return self._maps[name]
+
 
     def __getattr__(self, name):
         '''
@@ -385,6 +436,8 @@ class HazelCast(object):
                 return True
 
         return missing
+
+
         
 def hazelcast(hosts=None, user='dev', passwd='dev-pass', debug=0, dead_retry=_DEAD_RETRY,
                  socket_timeout=_SOCKET_TIMEOUT):  
@@ -392,6 +445,10 @@ def hazelcast(hosts=None, user='dev', passwd='dev-pass', debug=0, dead_retry=_DE
         hosts=['127.0.0.1:5701']
     return HazelCast(hosts, user='dev', passwd='dev-pass', debug=0, dead_retry=_DEAD_RETRY,
                  socket_timeout=_SOCKET_TIMEOUT)
+
+
+
+
 
 if __name__ == "__main__":
     hc = hazelcast()

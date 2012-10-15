@@ -236,12 +236,26 @@ class HazelCast(object):
         '''
         return self.cmd('PING', '')
 
+    def destroy(self, typename, name):
+        '''
+            Destroys this instance cluster-wide.
+            Clears and releases all resources for this instance.        
+            typename can be: map, queue, list, set, atomic_number, topic, lock, multimap, idgen, semaphore, count_down_latch
+        '''
+        return self.cmd('DESTROY', '%s %s' % (typename, name) )
+
     ''' map commands
     MGET, MGETALL, MPUT, MTRYPUT, MSET, MPUTTRANSIENT, MPUTANDUNLOCK, MREMOVE, MREMOVEITEM,
     MCONTAINSKEY, MCONTAINSVALUE, ADDLISTENER, EVENT, REMOVELISTENER, KEYSET, ENTRYSET, MGETENTRY, MLOCK, MISKEYLOCKED,
     MUNLOCK, MLOCKMAP, MUNLOCKMAP, MFORCEUNLOCK, MPUTALL, MPUTIFABSENT, MREMOVEIFSAME, MREPLACEIFNOTNULL, MREPLACEIFSAME,
     MTRYLOCKANDGET, MFLUSH, MEVICT, MADDLISTENER, MREMOVELISTENER
     '''
+
+    def keyset(self, typename, name):
+        '''
+        Returns keys of the map.
+        '''
+        return self.cmd('KEYSET', '%s %s' % (typename, name) )        
 
     def mput(self, mapname, key, value):
         '''
@@ -256,7 +270,9 @@ class HazelCast(object):
             Returns the value to which this map maps the specified key. Returns null if the map contains no mapping for
             this key        
         '''
-        return self.cmd('MGET', mapname, key)
+        values = self.cmd('MGET', mapname, key)
+        if values:
+            return values[0]            
 
     def mgetall(self, mapname, keys):
         '''

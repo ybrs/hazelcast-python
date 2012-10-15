@@ -1,0 +1,15 @@
+*.pyc
+*.so
+*.log
+*.swp
+build/
+dist/
+MANIFEST
+db
+dbenv
+sqdb/
+dbuser1/
+imdbdata/
+imdb.sqlite
+env/
+mailserver/run

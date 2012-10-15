@@ -15,6 +15,26 @@ _SOCKET_TIMEOUT = 3  #  number of seconds before sockets timeout.
 class _ConnectionDeadError(Exception):
     pass
 
+
+def _force_unicode(text):
+    if text == None:
+        return u''
+
+    if isinstance(text, unicode):
+        return text
+
+    try:
+        text = unicode(text, 'utf-8')
+    except UnicodeDecodeError:
+        text = unicode(text, 'latin1')
+    except TypeError:
+        text = unicode(text)
+    return text
+
+def _force_utf8(text):
+    return str(_force_unicode(text).encode('utf8'))
+
+
 class HCHost(object):
     ''' this is the server, node '''
 
@@ -122,24 +142,27 @@ class HCHost(object):
         return buf[:index]
 
     def read_response(self):
+        ''' 
+        we always return unicode, sounds like an overkill but using unicode everywhere is a good thing
+        '''
         header = self.readline()
         if self.debug:
             print "**** server ****", header
         pos = header.find('#')
         if pos == -1:
             if ('OK' in header):
-                return header
+                return _force_unicode(header)
             else:
                 print "[", header, "]"
                 raise Exception(header)
         else:
             argscnt = int(header[pos+1:])            
             if not argscnt:
-                return header
+                return _force_utf8(header)
             arglengths = self.readline().split(' ')        
             ret = []
             for i in arglengths:
-                ret.append(self.recv(int(i)))
+                ret.append(_force_unicode(self.recv(int(i))))
             # just read the last \r\n
             self.readline()
             return ret
@@ -174,7 +197,14 @@ class HCHost(object):
         MPUT myMap 0 #2 <- command commandargs #<numberof data args>
         5 7 <- args lengths
         myKeymyValue <- args data
-        '''
+
+        note: we replace unicode with utf8 here and we always return unicode from server
+        '''        
+        _args = []
+        for i in args:
+            _args.append(_force_utf8(i))        
+        args = _args
+
         buf = '%s %s #%s\r\n' % (command, commandargs, len(args))        
         if not args:
             self.socket.sendall(buf)
@@ -219,7 +249,7 @@ class HazelCast(object):
             node.auth(user=user, passwd=passwd)
 
     def cmd(self, command, commandargs, *args):
-        ''' TODO: first node is the best for now, but should fallback to second node if the first node is dead etc.. '''
+        ''' TODO: first node is the best for now, but should fallback to second node if the first node is dead etc.. '''        
         return self.nodes[0].cmd(command, commandargs, *args)
 
     def members(self):
@@ -245,10 +275,17 @@ class HazelCast(object):
         return self.cmd('DESTROY', '%s %s' % (typename, name) )
 
     ''' map commands
-    MGET, MGETALL, MPUT, MTRYPUT, MSET, MPUTTRANSIENT, MPUTANDUNLOCK, MREMOVE, MREMOVEITEM,
-    MCONTAINSKEY, MCONTAINSVALUE, ADDLISTENER, EVENT, REMOVELISTENER, KEYSET, ENTRYSET, MGETENTRY, MLOCK, MISKEYLOCKED,
+    + MGET 
+    + MGETALL
+    + MPUT, 
+    + MSET
+    + KEYSET
+    ? MSIZE    
+    - MFLUSH
+    - MTRYPUT, MPUTTRANSIENT, MPUTANDUNLOCK, MREMOVE, MREMOVEITEM,
+    MCONTAINSKEY, MCONTAINSVALUE, ADDLISTENER, EVENT, REMOVELISTENER, , ENTRYSET, MGETENTRY, MLOCK, MISKEYLOCKED,
     MUNLOCK, MLOCKMAP, MUNLOCKMAP, MFORCEUNLOCK, MPUTALL, MPUTIFABSENT, MREMOVEIFSAME, MREPLACEIFNOTNULL, MREPLACEIFSAME,
-    MTRYLOCKANDGET, MFLUSH, MEVICT, MADDLISTENER, MREMOVELISTENER
+    MTRYLOCKANDGET, , MEVICT, MADDLISTENER, MREMOVELISTENER
     '''
 
     def keyset(self, typename, name):
@@ -257,13 +294,24 @@ class HazelCast(object):
         '''
         return self.cmd('KEYSET', '%s %s' % (typename, name) )        
 
-    def mput(self, mapname, key, value):
+    def mput(self, mapname, key, value, ttl=0):
         '''
             Associates the specified value with the specified key in the map.
             If the map previously contained a mapping for this key, the old value is replaced by the specified value.
-            The operation will return the old value.        
+            The operation will return the old value.   
+
+            ttl is optional parameter in milliseconds. If set, the entry will be evicted after ttl milliseconds.     
         '''
-        return self.cmd('MPUT', mapname, key, value)
+        return self.cmd('MPUT', '%s %s' % (mapname, ttl), key, value)
+
+    def mset(self, mapname, key, value, ttl=0):
+        '''
+            Puts an entry into this map with a given ttl (time to live) value.
+            Entry will expire and get evicted after the ttl. If ttl is 0, then
+            the entry lives forever. Similar to MPUT command except that set
+            doesn't return the old value which is more efficient             
+        '''
+        return self.cmd('MSET', '%s %s' % (mapname, ttl), key, value)        
 
     def mget(self, mapname, key):
         '''
@@ -272,7 +320,13 @@ class HazelCast(object):
         '''
         values = self.cmd('MGET', mapname, key)
         if values:
-            return values[0]            
+            return values[0]
+
+    def msize(self, mapname):
+        '''
+            Returns the size of the map.
+        '''
+        return self.cmd('MSIZE', mapname)
 
     def mgetall(self, mapname, keys):
         '''
@@ -286,6 +340,51 @@ class HazelCast(object):
             ret[l[i]] = l[i+1]
         return ret
 
+    def mgetentry(self, mapname, key):
+        '''
+        Returns the entry statistics and value for a given key.
+        TODO: returns        
+            OK <costinbytes> <creationtime> <expirationtime> <hits> <lastaccesstime> <laststoredtime> <lastupdatetime> <version> <isvalid>  #1
+            <size of value in bytes>
+            <value in bytes>        
+        '''
+        return self.cmd('MGETENTRY', mapname, key)
+
+    def __getattr__(self, name):
+        '''
+        this is the fallback for unimplemented methods
+        we dont know if the method needs arguments in header or not,         
+        so we send the first argument as header - appended to the name -, then encode the rest
+        and we dont know what to do with the result, so we just check if its one liner, and if that one line starts with OK, 
+        and has additionals arguments we return the arguments.
+
+        there is a special case for true/false, if there is only one argument and its true/false we return True or False
+
+        if we receive multiple values, we just return values.
+
+        so for unimplemented method, eg: for MCONTAINSKEY you need to call
+        examples:
+        hc.mcontainskey('mymap', 'foo')
+        >>> False
+        hc.instances()        
+        >>> [...]
+        '''
+        def missing(header, *args, **kwargs):
+            val = self.cmd(name.upper(), header, *args)
+            if isinstance(val, list):
+                return val                
+            try:
+                v = val.split('OK ')[1].split(' ')
+                if len(v)==1:
+                    if v[0] == 'true':
+                        return True
+                    if v[0] == 'false':
+                        return False                    
+                return v
+            except:
+                return True
+
+        return missing
         
 def hazelcast(hosts=None, user='dev', passwd='dev-pass', debug=0, dead_retry=_DEAD_RETRY,
                  socket_timeout=_SOCKET_TIMEOUT):  
@@ -295,13 +394,15 @@ def hazelcast(hosts=None, user='dev', passwd='dev-pass', debug=0, dead_retry=_DE
                  socket_timeout=_SOCKET_TIMEOUT)
 
 if __name__ == "__main__":
-    hc = HazelCast(hosts=['127.0.0.1:5701'])
-    print hc.members()
-    # print hc.ping()
-    print hc.mput('mymap', 'foo', 'bar')
-    print hc.mput('mymap', 'foo2', 'bar2')
-    print hc.mget('mymap', 'foo')    
-    print hc.mgetall('mymap', ['foo', 'foo3', 'foo2'])
+    hc = hazelcast()
+    print hc.mcontainskey('mymap', 'foo')    
+    # hc = HazelCast(hosts=['127.0.0.1:5701'])
+    # print hc.members()
+    # # print hc.ping()
+    # print hc.mput('mymap', 'foo', 'bar')
+    # print hc.mput('mymap', 'foo2', 'bar2')
+    # print hc.mget('mymap', 'foo')    
+    # print hc.mgetall('mymap', ['foo', 'foo3', 'foo2'])
 
     # node = HCHost(host='127.0.0.1:5701', debug=0)
     # node.connect()

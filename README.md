@@ -10,7 +10,7 @@ you need to clone hazelcast/clientprotocol and compile for the server part.
 
 now run server,
 ---------------
-* java -server -Xms128M -Xmx128M -cp "hazelcast-2.2.SNAPSHOT.jar:hazelcast-client-2.2.SNAPSHOT.jar" com.hazelcast.examplestartServer
+* java -server -Xms128M -Xmx128M -cp "hazelcast-2.2.SNAPSHOT.jar:hazelcast-client-2.2.SNAPSHOT.jar" com.hazelcast.examples.StartServer
 
 now for the python client,
 ---------------------------

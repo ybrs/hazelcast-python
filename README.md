@@ -14,7 +14,7 @@ now run server,
 
 now for the python client,
 ---------------------------
-* git clone (this)
+* git clone git@github.com:ybrs/hazelcast-python.git
 * cd hazelcast-python
 * python setup.py install
 

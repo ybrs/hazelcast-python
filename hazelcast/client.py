@@ -98,7 +98,8 @@ class HCHost(object):
         if self.socket:
             return self.socket
         s = socket.socket(self.family, socket.SOCK_STREAM)
-        if hasattr(s, 'settimeout'): s.settimeout(self.socket_timeout)
+        if hasattr(s, 'settimeout'): 
+            s.settimeout(self.socket_timeout)
         try:
             s.connect(self.address)
         except socket.timeout, msg:
@@ -141,9 +142,10 @@ class HCHost(object):
         self.buffer = buf[index+2:]
         return buf[:index]
 
-    def read_response(self):
+    def read_response(self, return_with_header=False):
         ''' 
         we always return unicode, sounds like an overkill but using unicode everywhere is a good thing
+        @param return_with_header True if you want to get header and values as a tuple like: (header, [val1, val2])       
         '''
         header = self.readline()
         if self.debug:
@@ -165,6 +167,8 @@ class HCHost(object):
                 ret.append(_force_unicode(self.recv(int(i))))
             # just read the last \r\n
             self.readline()
+            if return_with_header:
+                return (header, ret)
             return ret
 
     def expect(self, text):
@@ -389,6 +393,30 @@ class HazelCast(object):
             <value in bytes>        
         '''
         return self.cmd('MGETENTRY', mapname, key)
+
+    # listener related...
+    def maddlistener(self, mapname, callback_fn, key=None):
+        '''
+            Adds an entry listener for this map. Listener will get notified
+            for all map add/remove/update/evict events.
+
+            providing key is optional. If provided the listener will be notified only for the key, otherwise it will be
+            notified for all entries in the map.            
+
+            IMPORTANT: this is a blocking operation, it will wait until the event is triggered, then call the callback_fn
+        '''
+        self.cmd('MADDLISTENER %s true' % mapname, key)
+        # we are removing the timeout
+        self.nodes[0].socket.settimeout(None)
+        while True:
+            # we loop until our eventlistener is removed.
+            header, values = self.nodes[0].read_response(True)        
+            e, objtype, name, eventtype, v = header.split(' ')
+            callback_fn(eventtype, values, name=name, objtype=objtype)
+           
+
+    def mremovelistener(self, mapname, key=None):
+        self.cmd('MREMOVELISTENER %s' % mapname, key)
     
     def Map(self, name):
             '''
@@ -447,12 +475,9 @@ def hazelcast(hosts=None, user='dev', passwd='dev-pass', debug=0, dead_retry=_DE
                  socket_timeout=_SOCKET_TIMEOUT)
 
 
-
-
-
 if __name__ == "__main__":
-    hc = hazelcast()
-    print hc.mcontainskey('mymap', 'foo')    
+    pass
+    # print hc.mcontainskey('mymap', 'foo')    
     # hc = HazelCast(hosts=['127.0.0.1:5701'])
     # print hc.members()
     # # print hc.ping()
